@@ -75,18 +75,20 @@ Errors in a single step do not abort the run:
 
 ### Token limit (Groq free tier, 8,000 tokens/minute)
 
-- Short rate-limit waits (up to `MAX_AUTO_WAIT_S`, default 10 s) are waited out automatically.
-- Longer waits **pause** the run.
-  - *Interactive (stdin and stdout are a terminal):* the results gathered so far are shown on
-    stderr and the user is asked whether the rest should be processed. On `y` the agent waits for
-    the limit to reset and continues the same conversation, so the final answer covers the whole
-    request. This can repeat as often as needed. On `n` the run ends with exit code 2 and the
-    partial results.
-  - *Unattended (e.g. pipes, scripts, IDE run windows):* no question is asked; the agent
-    waits for the reset and continues on its own, as long as all pauses of the run together stay
-    within `MAX_UNATTENDED_WAIT_S` (default 600 s). Beyond that it ends with exit code 2, the
-    endpoint's explanation of the limit and the partial results.
-- `ASK_ON_RATE_LIMIT=auto|always|never` overrides the terminal detection (default `auto`).
+By default the agent handles the limit on its own, so every run ends without any input:
+
+- it waits for the limit to reset (shown on stderr) and continues the same conversation, so the
+  final answer covers the whole request;
+- all waits of a run together may take up to `MAX_UNATTENDED_WAIT_S` (default 600 s). Beyond that
+  the run ends with exit code 2, the endpoint's explanation of the limit and the partial results.
+
+Asking the user instead is optional, via `ASK_ON_RATE_LIMIT`:
+
+- `never` (default): wait as described above;
+- `always`: at every longer pause (more than `MAX_AUTO_WAIT_S`, default 10 s) the results gathered
+  so far are shown and the user is asked whether the rest should be processed. On `y` the agent
+  waits and continues, on `n` (or no input) the run ends with exit code 2 and the partial results;
+- `auto`: ask only when started in a terminal, otherwise wait.
 - To use fewer tokens per request, `MAX_COMPLETION_TOKENS` (default 1536) caps the reserved output
   and, for gpt-oss models, `REASONING_EFFORT` (default `low`) is sent; set it empty to disable.
   If an endpoint rejects one of these optional parameters (HTTP 400 naming it), the request is

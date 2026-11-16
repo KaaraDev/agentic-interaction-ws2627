@@ -1,7 +1,7 @@
 """What to do when the token limit is reached and the wait is too long to just sit out (strategy).
 
-AskUser     a person is at the terminal: show the partial results and ask whether to go on
-WaitAlone   nobody to ask (pipes, scripts, IDE run windows): wait and go on, within limits
+WaitAlone   default: wait for the reset and go on, within a total wait budget per run
+AskUser     only when configured (ASK_ON_RATE_LIMIT): show the partial results and ask whether to go on
 """
 import json
 import sys
@@ -54,11 +54,13 @@ class WaitAlone(PausePolicy):
 
 def choose_policy(config: Config) -> PausePolicy:
     mode = config.ask_on_rate_limit
-    # Both must be a terminal: on Windows the null device (stdin=DEVNULL) reports isatty() == True.
-    interactive = bool(sys.stdin and sys.stdin.isatty() and sys.stdout and sys.stdout.isatty())
-    if mode == 'always' or (mode == 'auto' and interactive):
+    if mode == 'always':
         return AskUser()
-    return WaitAlone(config.max_unattended_wait_s, config.max_pauses)
+    if mode == 'auto':
+        # Both must be a terminal: on Windows the null device (stdin=DEVNULL) reports isatty() == True.
+        if sys.stdin and sys.stdin.isatty() and sys.stdout and sys.stdout.isatty():
+            return AskUser()
+    return WaitAlone(config.max_unattended_wait_s, config.max_pauses)  # 'never' (default)
 
 
 def partial_report(results) -> str:

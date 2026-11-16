@@ -31,9 +31,11 @@ class Config:
     temperature: float = 0.3         # lower than the default: fewer malformed tool calls
     # token limit (HTTP 429)
     max_auto_wait_s: float = 10      # shorter waits are simply sat out
-    max_unattended_wait_s: float = 600  # unattended: total waiting per run (all pauses together)
-    max_pauses: int = 20             # unattended pauses per run
-    ask_on_rate_limit: str = 'auto'  # auto | always | never
+    max_unattended_wait_s: float = 600  # total waiting per run when not asking (all pauses together)
+    max_pauses: int = 20             # pauses per run when not asking
+    # Default: wait for the limit to reset on its own, so every run ends by itself without input.
+    # 'always' asks the user at each longer pause; 'auto' asks only when started in a terminal.
+    ask_on_rate_limit: str = 'never'  # never | always | auto
 
     @classmethod
     def from_env(cls) -> 'Config':
