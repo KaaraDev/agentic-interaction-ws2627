@@ -33,6 +33,25 @@ python -m agent "What is on 29 Oct 2026 and on 30 Oct 2026?"
 
 The answer is printed to standard output (exit code 0).
 
+## Code structure
+
+```
+agent/
+  __main__.py     entry point: runs the agent, prints the answer, logs how the run ended, exit code
+  config.py       settings from the environment / .env (Config)
+  agent.py        the agent loop (Agent): model call -> tools -> ... -> answer
+  llm.py          HTTP client for the OpenAI-compatible endpoint (ChatClient) and retries (RetryingClient)
+  tools/
+    base.py       Tool, ToolRegistry: tools describe themselves to the model and are run by name
+    calendar.py   get_calendar_day
+    __init__.py   build_registry(): the tools the agent gets (a new tool is added here)
+  policies.py     what to do at the token limit: ask the user (AskUser) or wait (WaitAlone)
+  guards.py       checks on an answer before it is accepted (no days that were not fetched)
+  prompts.py      all texts sent to the model
+  log.py          JSONL run log (RunLog)
+  errors.py       exceptions and exit codes
+```
+
 ## Agent loop
 
 The agent calls the model repeatedly (one model call = one step) and executes the requested tools
@@ -44,10 +63,15 @@ Errors in a single step do not abort the run:
 
 - a failing tool, invalid or missing arguments, or an unknown tool are reported back to the model
   as the tool result, so it can react;
-- transient model errors (5xx, network, unparseable model output) are retried up to 3 times; if
-  the model keeps producing unparseable output, it is told so and asked again;
+- transient model errors (5xx, network, unparseable model output or garbled tool calls) are
+  retried up to 3 times; if the model keeps producing garbled output, it is told so and asked
+  again;
 - an empty or cut-off answer is not accepted as a result: the model is told which days it has
-  fetched so far and continues (it is not pushed to answer, which would make it invent data).
+  fetched so far and continues (it is not pushed to answer, which would make it invent data);
+- an answer that talks about a day that was never fetched (dates are recognised in German,
+  English and ISO notation) is not accepted either: the model is told to fetch those days first
+  (at most twice per run, so the run still ends). This is a safety net, not a proof: it only sees
+  dates the answer names explicitly, and does not check the answer against the question.
 
 ### Token limit (Groq free tier, 8,000 tokens/minute)
 
@@ -58,12 +82,15 @@ Errors in a single step do not abort the run:
     the limit to reset and continues the same conversation, so the final answer covers the whole
     request. This can repeat as often as needed. On `n` the run ends with exit code 2 and the
     partial results.
-  - *Unattended (e.g. automated tests, pipes, IDE run windows):* no question is asked; the agent
-    waits for the reset and continues on its own, up to `MAX_UNATTENDED_WAIT_S` (default 180 s)
-    per pause and 10 pauses. Beyond that it ends with exit code 2 and the partial results.
+  - *Unattended (e.g. pipes, scripts, IDE run windows):* no question is asked; the agent
+    waits for the reset and continues on its own, as long as all pauses of the run together stay
+    within `MAX_UNATTENDED_WAIT_S` (default 600 s). Beyond that it ends with exit code 2, the
+    endpoint's explanation of the limit and the partial results.
 - `ASK_ON_RATE_LIMIT=auto|always|never` overrides the terminal detection (default `auto`).
 - To use fewer tokens per request, `MAX_COMPLETION_TOKENS` (default 1536) caps the reserved output
   and, for gpt-oss models, `REASONING_EFFORT` (default `low`) is sent; set it empty to disable.
+  If an endpoint rejects one of these optional parameters (HTTP 400 naming it), the request is
+  sent again without it (`max_completion_tokens` falls back to `max_tokens`).
 
 ### Exit codes
 
