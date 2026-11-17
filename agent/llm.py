@@ -19,6 +19,7 @@ from .log import RunLog
 class Completion:
     message: dict
     finish_reason: str | None
+    usage: dict | None = None  # token counts reported by the endpoint (prompt / completion)
 
     @property
     def tool_calls(self) -> list:
@@ -76,8 +77,9 @@ class ChatClient:
         )
         try:
             with urllib.request.urlopen(request, timeout=60) as response:
-                choice = json.loads(response.read().decode('utf-8'))['choices'][0]
-                return Completion(choice['message'], choice.get('finish_reason'))
+                body = json.loads(response.read().decode('utf-8'))
+                choice = body['choices'][0]
+                return Completion(choice['message'], choice.get('finish_reason'), body.get('usage'))
         except urllib.error.HTTPError as e:
             text = e.read().decode('utf-8', 'replace')
             if e.code == 400 and not _is_generation_failure(text) and self._adapt_to_rejection(text):

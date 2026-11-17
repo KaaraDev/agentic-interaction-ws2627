@@ -31,8 +31,35 @@ _PATTERNS = [
 ]
 
 
+# Models write typographic variants of '-' and ' ' (e.g. 2026-10-30 with non-breaking hyphens).
+# They are replaced by the plain characters before looking for dates.
+_DASH_CODEPOINTS = (
+    0x2010,  # hyphen
+    0x2011,  # non-breaking hyphen
+    0x2012,  # figure dash
+    0x2013,  # en dash
+    0x2014,  # em dash
+    0x2015,  # horizontal bar
+    0x2212,  # minus sign
+    0xFE58,  # small em dash
+    0xFE63,  # small hyphen-minus
+    0xFF0D,  # fullwidth hyphen-minus
+)
+_SPACE_CODEPOINTS = (
+    0x00A0,  # no-break space
+    *range(0x2000, 0x200B),  # en quad ... hair space
+    0x202F,  # narrow no-break space
+    0x205F,  # medium mathematical space
+    0x3000,  # ideographic space
+)
+_ZERO_WIDTH_SPACE = 0x200B
+_NORMALISE = {**dict.fromkeys(_DASH_CODEPOINTS, '-'), **dict.fromkeys(_SPACE_CODEPOINTS, ' '),
+              _ZERO_WIDTH_SPACE: None}
+
+
 def dates_in(text: str) -> set[str]:
     """ISO dates mentioned in the text. Things that are no real date (14.30, 30 February) are skipped."""
+    text = text.translate(_NORMALISE)
     years = re.findall(r'\b(20\d\d)\b', text)
     default_year = int(max(set(years), key=years.count)) if years else date.today().year
     found = set()

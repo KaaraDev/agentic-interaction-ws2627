@@ -25,12 +25,15 @@ MAX_GUARD_ROUNDS = 2  # corrections for answers about days that were not fetched
 
 @dataclass
 class RunState:
+    task: str
     messages: list[dict]
     results: list[ToolResult] = field(default_factory=list)
     steps: int = 0
     nudges: int = 0
     guard_rounds: int = 0
     pauses: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
 
 
 class Agent:
@@ -43,14 +46,14 @@ class Agent:
 
     def run(self, task: str) -> tuple[str, int]:
         """Returns (answer, duration of the last model call in ms). Raises RunAborted."""
-        state = RunState(messages=[
+        state = RunState(task=task, messages=[
             {"role": "system", "content": prompts.system_prompt(date.today())},
             {"role": "user", "content": task},
         ])
         while state.steps < self.config.max_steps:
             started = time.perf_counter()
             try:
-                completion = self.client.complete(state.messages)
+                completion = self.client.complete(self._request_messages(state))
             except RateLimited as e:
                 self._pause(state, e)
                 continue
@@ -59,6 +62,7 @@ class Agent:
                 continue
             state.steps += 1
             duration_ms = round((time.perf_counter() - started) * 1000)
+            self._count_tokens(state, completion)
 
             if completion.tool_calls:
                 self._run_tools(state, completion, duration_ms)
@@ -69,6 +73,14 @@ class Agent:
         raise RunAborted(f"No final answer after {self.config.max_steps} steps")
 
     # ------------------------------------------------------------------ steps
+
+    @staticmethod
+    def _request_messages(state: RunState) -> list[dict]:
+        """The conversation plus, once tool results are in it, a short language reminder at the end.
+        The reminder is not stored in the history, so it costs its few tokens only once per request."""
+        if not state.results:
+            return state.messages
+        return state.messages + [{"role": "system", "content": prompts.language_reminder(state.task)}]
 
     def _run_tools(self, state: RunState, completion: Completion, duration_ms: int) -> None:
         # Send back only what the API needs; extra fields (e.g. reasoning) would cost tokens.
@@ -112,6 +124,16 @@ class Agent:
             state.messages.append({"role": "user", "content": prompts.unfetched_days(missing, CALENDAR_TOOL)})
             return None
         return content
+
+    def _count_tokens(self, state: RunState, completion: Completion) -> None:
+        """Keeps a running total for the run log, so the cost of a run is visible."""
+        usage = completion.usage
+        if not isinstance(usage, dict) or 'prompt_tokens' not in usage:
+            return
+        state.prompt_tokens += int(usage.get('prompt_tokens') or 0)
+        state.completion_tokens += int(usage.get('completion_tokens') or 0)
+        self.log.token_summary = (f'tokens used: {state.prompt_tokens} prompt + {state.completion_tokens} '
+                                  f'completion in {state.steps} steps')
 
     # ------------------------------------------------------------------ problems
 

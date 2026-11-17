@@ -20,10 +20,15 @@ class RunLog:
         self.path = log_dir / f'{stamp}_{self.run_id}.jsonl'
         # Waits, retries and nudges are no events of their own (the specification fixes the event
         # names); they are collected here and written into the args of the final / error event.
-        self.notes: list[str] = []
+        self._notes: list[str] = []
+        self.token_summary: str | None = None  # running total, replaced after every model call
 
     def note(self, text: str) -> None:
-        self.notes.append(text)
+        self._notes.append(text)
+
+    @property
+    def notes(self) -> list[str]:
+        return self._notes + ([self.token_summary] if self.token_summary else [])
 
     def write(self, event: str, **fields) -> None:
         entry = {

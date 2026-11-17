@@ -89,9 +89,17 @@ Asking the user instead is optional, via `ASK_ON_RATE_LIMIT`:
   so far are shown and the user is asked whether the rest should be processed. On `y` the agent
   waits and continues, on `n` (or no input) the run ends with exit code 2 and the partial results;
 - `auto`: ask only when started in a terminal, otherwise wait.
-- To use fewer tokens per request, `MAX_COMPLETION_TOKENS` (default 1536) caps the reserved output
-  and, for gpt-oss models, `REASONING_EFFORT` (default `low`) is sent; set it empty to disable.
-  If an endpoint rejects one of these optional parameters (HTTP 400 naming it), the request is
+
+Keeping token use low (every step sends the whole conversation again):
+
+- the model is asked to request all days it needs in one step instead of one day per step;
+- tool results only contain what an answer needs (no ids, no repeated dates, no empty fields);
+- the model's reasoning is not sent back in later steps;
+- once tool results are in the conversation, each request ends with a short reminder to answer in
+  the language of the question (it is not stored in the history, so it is sent only once per request);
+- for gpt-oss models `REASONING_EFFORT=low` is sent (reasoning counts as output); set it empty
+  to disable. `MAX_COMPLETION_TOKENS` (default 1536) only caps runaway output.
+- If an endpoint rejects one of these optional parameters (HTTP 400 naming it), the request is
   sent again without it (`max_completion_tokens` falls back to `max_tokens`).
 
 ### Exit codes
@@ -104,4 +112,5 @@ Each run writes its own JSONL file to `logs/` (not committed) with the fields
 `ts`, `run_id`, `event` (`user_task`, `tool_call`, `tool_result`, `final`, `error`),
 `tool`, `args`, `ok`, `model` and `duration_ms`. Every run ends with exactly one `final`
 (success, written after the answer was printed) or `error` event, so the log shows how the run
-ended. Rate-limit waits, retries and nudges are listed in `args.notes` of that last event.
+ended. Rate-limit waits, retries, nudges and the tokens used by the run are listed in
+`args.notes` of that last event.

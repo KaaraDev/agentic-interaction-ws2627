@@ -24,8 +24,8 @@ class Config:
     data_base_url: str
     # agent loop
     max_steps: int = 30              # model calls per run; reaching it ends the run as an error
-    # model requests: Groq counts the reserved output tokens of every request against the
-    # tokens-per-minute limit, so a smaller reservation and less reasoning allow more requests
+    # model requests: only tokens actually used count against the limit, so this is a cap against
+    # runaway output, not a saving; less reasoning does save tokens (reasoning counts as output)
     max_completion_tokens: int = 1536
     reasoning_effort: str = ''       # only understood by some models (gpt-oss); empty = not sent
     temperature: float = 0.3         # lower than the default: fewer malformed tool calls

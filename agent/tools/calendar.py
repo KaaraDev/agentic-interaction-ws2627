@@ -26,16 +26,17 @@ def calendar_tool(data_base_url: str) -> Tool:
             raise ToolError(f"HTTP {e.code} while reading {url}") from None
         except Exception as e:
             raise ToolError(f"{type(e).__name__} while reading {url}: {e}") from None
-        try:  # minify: the pretty-printed file wastes about a third of the tokens
-            return json.dumps(json.loads(text), ensure_ascii=False, separators=(',', ':'))
+        try:
+            data = json.loads(text)
         except json.JSONDecodeError:
             return text
+        return json.dumps(_compact(data), ensure_ascii=False, separators=(',', ':'))
 
     return Tool(
         name=NAME,
         description=("Returns the calendar appointments of the user for exactly one day "
                      "(title, start and end time, location, all-day flag). "
-                     "Call it once per day the user asks about."),
+                     "For several days, call it for all of them in the same reply."),
         parameters={
             "type": "object",
             "properties": {
@@ -46,6 +47,22 @@ def calendar_tool(data_base_url: str) -> Tool:
         },
         func=get_calendar_day,
     )
+
+
+def _compact(data):
+    """Only what the answer needs. The whole history is sent again with every step, so every
+    field that is left out here is saved many times: no ids, no date repeated in every event,
+    no empty values, all_day only when true."""
+    if not isinstance(data, dict) or not isinstance(data.get('events'), list):
+        return data
+    events = []
+    for event in data['events']:
+        if not isinstance(event, dict):
+            events.append(event)
+            continue
+        events.append({key: value for key, value in event.items()
+                       if key not in ('id', 'date') and value not in (None, '', False)})
+    return {**data, 'events': events}
 
 
 def fetched_days(results) -> set[str]:
