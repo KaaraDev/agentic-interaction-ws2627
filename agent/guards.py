@@ -1,12 +1,11 @@
-"""Checks on the model's answer before it is accepted.
+"""Checks on the model's answer before it is accepted. Both look for invented content.
 
-unfetched_days(): dates the answer talks about without their data having been fetched,
-i.e. invented content. Dates are recognised in ISO, German and English notation.
+unfetched_days(): dates the answer talks about without any tool having fetched data for them.
+                  Dates are recognised in ISO, German and English notation.
+unknown_trains(): train numbers (e.g. ICE 596) in the answer that no tool result contains.
 """
 import re
 from datetime import date
-
-from .tools.calendar import fetched_days
 
 MONTHS = {
     'jan': 1, 'januar': 1, 'january': 1, 'feb': 2, 'februar': 2, 'february': 2,
@@ -74,5 +73,34 @@ def dates_in(text: str) -> set[str]:
     return found
 
 
+def fetched_days(results) -> set[str]:
+    """ISO dates some tool fetched successfully (its 'day' argument). A 404 'no data' result counts
+    as fetched: the answer may then talk about that day, saying that there is no data."""
+    days = set()
+    for result in results:
+        if result.ok and isinstance(result.args, dict) and 'day' in result.args:
+            try:
+                days.add(date.fromisoformat(str(result.args['day'])).isoformat())
+            except ValueError:
+                pass
+    return days
+
+
 def unfetched_days(answer: str, results) -> list[str]:
     return sorted(dates_in(answer) - fetched_days(results))
+
+
+_TRAIN = re.compile(r'\b(ICE|IRE|IC|EC|RE|RB)\s?(\d{1,5})\b')
+
+
+def _trains(text: str) -> set[str]:
+    """Train numbers in a canonical form ('ICE 596' and 'ICE596' are the same train)."""
+    return {f"{kind} {number}" for kind, number in _TRAIN.findall(text.translate(_NORMALISE))}
+
+
+def unknown_trains(answer: str, results) -> list[str]:
+    known = set()
+    for result in results:
+        if result.ok:
+            known |= _trains(result.content)
+    return sorted(_trains(answer) - known)

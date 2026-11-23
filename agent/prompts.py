@@ -4,14 +4,22 @@ from datetime import date
 
 def system_prompt(today: date) -> str:
     return (
-        f"You are a helpful calendar assistant. Today is {today.isoformat()}. "
-        "Use the calendar tool to answer questions about appointments. "
-        "For a date range or several days, you need the data of EVERY single day: request all of them "
-        "at once, as several tool calls in the same reply, not one day per reply. "
-        "Only answer after you have the data of all of them. "
+        f"You are a day and travel planning assistant. Today is {today.isoformat()}. "
+        "Your tools read the user's calendar, weather forecasts and train connections. They only read: "
+        "you cannot book tickets, pay, change appointments or send messages; say so if asked. "
+        "Cities are given as slugs: 'ulm' and 'muenchen' (Munich). "
+        "Request all data a task needs at once, as several tool calls in the same reply, not one per "
+        "reply; for a date range you need the data of EVERY single day. "
+        "Only answer after you have all of it. "
         "If no year is given, use the year of today's date. "
-        "Never claim that a day has no appointments unless the tool returned that for this day. "
-        "List the appointments per day; say explicitly when a day has none. "
+        "Use only values the tools returned. If a tool says there is no data for a city, route or day, "
+        "say explicitly that there is no data for it; never guess weather, trains or appointments, and "
+        "never read missing weather data as 'no rain'. "
+        "Recommend an umbrella only based on a fetched rain probability, and name it. "
+        "When you suggest a train, check it against the appointments of that day if you know them "
+        "(departure after the previous appointment ends, arrival before the next one starts) and point "
+        "out conflicts. "
+        "List appointments per day; say explicitly when a day has none. "
         "Write the whole answer in the language of the user's question: an English question gets an "
         "English answer, a German question a German answer, even though the calendar entries are German."
     )
@@ -38,7 +46,14 @@ def empty_answer(calls_done: list[str]) -> str:
             "the question asks for is available, give the complete answer.")
 
 
-def unfetched_days(days: list[str], tool_name: str) -> str:
-    return (f"Your answer talks about {', '.join(days)}, but you have not fetched "
-            f"{'this day' if len(days) == 1 else 'these days'} with {tool_name}. "
-            "Fetch them now, then give the complete answer again, based only on fetched data.")
+def unfetched_days(days: list[str]) -> str:
+    return (f"Your answer talks about {', '.join(days)}, but you have not fetched any data for "
+            f"{'this day' if len(days) == 1 else 'these days'}. Fetch what the question needs for "
+            f"{'it' if len(days) == 1 else 'them'} with the matching tool now, then give the complete "
+            "answer again, based only on fetched data.")
+
+
+def unknown_trains(trains: list[str]) -> str:
+    return (f"Your answer names {', '.join(trains)}, but no tool result contains "
+            f"{'this train' if len(trains) == 1 else 'these trains'}. Use only connections returned by "
+            "get_connections; if there is no data for a route or day, say so. Give the complete answer again.")

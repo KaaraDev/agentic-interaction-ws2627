@@ -12,12 +12,11 @@ from datetime import date
 from . import prompts
 from .config import Config
 from .errors import EXIT_PARTIAL, ModelError, RateLimited, RunAborted
-from .guards import unfetched_days
+from .guards import unfetched_days, unknown_trains
 from .llm import Completion
 from .log import RunLog
 from .policies import PausePolicy, countdown, partial_report
 from .tools import ToolRegistry, ToolResult
-from .tools.calendar import NAME as CALENDAR_TOOL
 
 MAX_NUDGES = 3        # corrections for garbled, empty or cut-off model output
 MAX_GUARD_ROUNDS = 2  # corrections for answers about days that were not fetched
@@ -115,14 +114,21 @@ class Agent:
             state.messages.append({"role": "user", "content": prompts.empty_answer(calls_done)})
             return None
 
-        missing = unfetched_days(content, state.results)
-        if missing and state.guard_rounds < MAX_GUARD_ROUNDS:
-            state.guard_rounds += 1
-            self.log.note(f'answer mentions unfetched days {missing}, '
-                          f'asked the model to fetch them ({state.guard_rounds})')
-            state.messages.append({"role": "assistant", "content": content})
-            state.messages.append({"role": "user", "content": prompts.unfetched_days(missing, CALENDAR_TOOL)})
-            return None
+        if state.guard_rounds < MAX_GUARD_ROUNDS:
+            correction = None
+            if missing := unfetched_days(content, state.results):
+                self.log.note(f'answer mentions unfetched days {missing}, '
+                              f'asked the model to fetch them ({state.guard_rounds + 1})')
+                correction = prompts.unfetched_days(missing)
+            elif invented := unknown_trains(content, state.results):
+                self.log.note(f'answer names trains no tool returned {invented}, '
+                              f'asked the model to correct it ({state.guard_rounds + 1})')
+                correction = prompts.unknown_trains(invented)
+            if correction:
+                state.guard_rounds += 1
+                state.messages.append({"role": "assistant", "content": content})
+                state.messages.append({"role": "user", "content": correction})
+                return None
         return content
 
     def _count_tokens(self, state: RunState, completion: Completion) -> None:
