@@ -1,8 +1,19 @@
 # agentic-interaction-ws2627
 
-Calendar agent: the model calls the tool `get_calendar_day`, which reads the appointments of one
-day from `{DATA_BASE_URL}/calendar/{YYYY-MM-DD}.json`, as many times as the task needs, and then
-answers.
+Day and travel planning agent: the model calls read-only tools on the mock data as many times as
+the task needs, and then answers.
+
+| Tool | Endpoint under `DATA_BASE_URL` | Arguments |
+|---|---|---|
+| `get_calendar_day` | `calendar/{day}.json` | `day` |
+| `get_weather` | `weather/{city}/{day}.json` | `city`, `day` |
+| `get_connections` | `transit/{origin}/{destination}/{day}.json` | `origin`, `destination`, `day` |
+
+Days are `YYYY-MM-DD`, cities the slugs `ulm` and `muenchen` (the schema restricts them to these;
+`munich` / `München` are mapped to `muenchen`, any other city is an error result). HTTP 404 means
+*no data*: the tool returns an explicit "no data … do not guess" result instead of failing, so the
+agent says that there is no data rather than, e.g., reading a missing forecast as "no rain".
+See [TOOLS.md](TOOLS.md) for the fact sheet (effect and reversibility of every tool).
 
 ## Setup
 
@@ -29,6 +40,7 @@ From the repository root:
 
 ```bash
 python -m agent "What is on 29 Oct 2026 and on 30 Oct 2026?"
+python -m agent "How do I get to Munich on 29 Oct 2026, and do I need an umbrella?"
 ```
 
 The answer is printed to standard output (exit code 0).
@@ -43,10 +55,13 @@ agent/
   llm.py          HTTP client for the OpenAI-compatible endpoint (ChatClient) and retries (RetryingClient)
   tools/
     base.py       Tool, ToolRegistry: tools describe themselves to the model and are run by name
+    data.py       shared data access: fetch_json (404 -> None), iso_day, city_slug
     calendar.py   get_calendar_day
+    weather.py    get_weather
+    transit.py    get_connections
     __init__.py   build_registry(): the tools the agent gets (a new tool is added here)
   policies.py     what to do at the token limit: ask the user (AskUser) or wait (WaitAlone)
-  guards.py       checks on an answer before it is accepted (no days that were not fetched)
+  guards.py       checks on an answer before it is accepted (no unfetched days, no unknown trains)
   prompts.py      all texts sent to the model
   log.py          JSONL run log (RunLog)
   errors.py       exceptions and exit codes
@@ -68,10 +83,12 @@ Errors in a single step do not abort the run:
   again;
 - an empty or cut-off answer is not accepted as a result: the model is told which days it has
   fetched so far and continues (it is not pushed to answer, which would make it invent data);
-- an answer that talks about a day that was never fetched (dates are recognised in German,
-  English and ISO notation) is not accepted either: the model is told to fetch those days first
+- an answer that talks about a day for which no tool fetched data (dates are recognised in German,
+  English and ISO notation), or that names a train (e.g. `ICE 596`) that no tool result contains,
+  is not accepted either: the model is told to fetch the data / use only returned connections
   (at most twice per run, so the run still ends). This is a safety net, not a proof: it only sees
-  dates the answer names explicitly, and does not check the answer against the question.
+  dates and train numbers the answer names explicitly, and does not check the answer against the
+  question.
 
 ### Token limit (Groq free tier, 8,000 tokens/minute)
 
