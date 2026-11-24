@@ -4,9 +4,12 @@ unfetched_days(): dates the answer talks about without any tool having fetched d
                   Dates are recognised in ISO, German and English notation.
 unknown_trains(): train numbers (e.g. ICE 596) in the answer that neither a tool result nor the
                   question contains.
+unreported_conflicts(): trains that get_connections marked as conflicting with the calendar, but
+                  that the answer mentions without saying so.
 language_of():    English or German, from common function words; used to name the answer language
                   in the reminder and to reject an answer in the wrong language.
 """
+import json
 import re
 from datetime import date
 
@@ -130,6 +133,65 @@ _TRAIN = re.compile(r'\b(ICE|IRE|IC|EC|RE|RB)\s?(\d{1,5})\b')
 def _trains(text: str) -> set[str]:
     """Train numbers in a canonical form ('ICE 596' and 'ICE596' are the same train)."""
     return {f"{kind} {number}" for kind, number in _TRAIN.findall(text.translate(_NORMALISE))}
+
+
+_CONFLICT_WORDS = re.compile(
+    r'conflict|clash|overlap|collid|\bmiss|not fit|n.t fit|does not work|doesn.t work|cannot make|'
+    r"can.t make|too late|unsuitable|not suitable|not possible|on the train|❌|✗|✘|"
+    r'konflikt|überschneid|ueberschneid|kollid|verpass|zu spät|zu spaet|passt nicht|nicht passend|'
+    r'ungeeignet|nicht möglich|nicht moeglich|im zug', re.I)
+# "doesn't conflict", "no conflicts", "keine Konflikte" deny a conflict: removed before looking for one.
+_NEGATED_CONFLICT = re.compile(
+    r"\b(no|without|doesn.t|does not|don.t|do not|won.t|will not|isn.t|is not|not any|any|kein\w*|nicht|ohne)"
+    r"\s+(\w+\s+){0,2}?\w*?(conflict|clash|overlap|collid|konflikt|überschneid|ueberschneid|kollid)\w*"
+    r"|\b(conflict|clash)[- ]free\b|\bkonfliktfrei\w*", re.I)
+_NONE_FITS = re.compile(
+    r'\b(no|none of (the|them|these)|keine?|keiner der)\b.{0,60}'
+    r'\b(train|connection|option|verbindung|zug|züge|zuege)\w*\b.{0,60}'
+    r'\b(fits?|suit|works?|passt|passen|geeignet|möglich|moeglich|rechtzeitig|in time|on time)', re.I)
+
+
+def _checked_connections(results) -> tuple[dict[str, str], bool]:
+    """({train: first conflict} for connections get_connections marked as not fitting,
+    whether some connection on that route fits at all)."""
+    conflicting, any_fits = {}, False
+    for result in results:
+        if result.tool != 'get_connections' or not result.ok:
+            continue
+        try:
+            data = json.loads(result.content)
+        except json.JSONDecodeError:
+            continue
+        for connection in data.get('connections', []) if isinstance(data, dict) else []:
+            check = connection.get('check') if isinstance(connection, dict) else None
+            if not isinstance(check, dict):
+                continue
+            if check.get('fits') is False:
+                for train in _trains(str(connection.get('train', ''))):
+                    conflicting[train] = (check.get('conflicts') or ['conflict'])[0]
+            elif check.get('fits'):
+                any_fits = True
+    return conflicting, any_fits
+
+
+def unreported_conflicts(answer: str, results) -> dict[str, str]:
+    """Conflicting trains the answer mentions without saying anywhere near them that they conflict.
+
+    A train counts as reported if a line or sentence naming it contains a conflict word, or if no
+    connection fits at all and the answer says so in general ("none of the trains fits")."""
+    conflicting, any_fits = _checked_connections(results)
+    if not conflicting:
+        return {}
+    text = answer.translate(_NORMALISE)
+    if not any_fits and _NONE_FITS.search(text):
+        return {}
+    segments = re.split(r'\n|(?<=[.!?])\s+', text)
+    missing = {}
+    for train, conflict in conflicting.items():
+        mentions = [s for s in segments if train in _trains(s)]
+        if mentions and not any(_CONFLICT_WORDS.search(_NEGATED_CONFLICT.sub(' ', s)) for s in mentions):
+            missing[train] = conflict
+    return missing
 
 
 def unknown_trains(answer: str, results, question: str = '') -> list[str]:

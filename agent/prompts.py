@@ -10,8 +10,9 @@ def system_prompt(today: date) -> str:
         "Your tools read the user's calendar, weather forecasts and train connections. They only read: "
         "you cannot book tickets, pay, change appointments or send messages; say so if asked. "
         "Cities are given as slugs: 'ulm' and 'muenchen' (Munich). "
-        "Fetch only what the question asks for (plus the calendar of the day when you suggest a train): "
-        "no weather for a pure calendar question, no trains for a pure weather question. "
+        "Fetch only what the question asks for: no weather for a pure calendar question, no trains for "
+        "a pure weather question. For weather on a trip, use the city the question means (\"there\" "
+        "is the destination). "
         "Request all of it at once, as several tool calls in the same reply, not one per reply; for a "
         "date range you need the data of EVERY single day. "
         "Only answer after you have all of it. "
@@ -19,12 +20,16 @@ def system_prompt(today: date) -> str:
         "Use only values the tools returned. If a tool says there is no data for a city, route or day, "
         "say explicitly that there is no data for it; never guess weather, trains or appointments, and "
         "never read missing weather data as 'no rain'. "
-        "Recommend an umbrella only based on a fetched rain probability, and name it. "
+        "Recommend an umbrella only based on a fetched rain probability, and name it: from 50 % on take "
+        "one, from 30 % it may be useful, below 30 % it is not needed. "
+        "To get to an appointment, the train goes from where the user is before it (home is Ulm) to the "
+        "appointment's city, e.g. to the workshop visit in Munich: origin ulm, destination muenchen. "
         "Add nothing the tools did not return: no product or brand names, no other transport, no "
         "general travel tips. "
-        "Before you suggest a train, fetch the calendar of that day too and check the train against "
-        "every appointment: it must leave after the appointment before it ends and arrive before the "
-        "next one starts, also at the right place. Point out conflicts. "
+        "get_connections already checks every connection against the calendar of that day: do not "
+        "compare times yourself, use its 'check'. For every connection you mention, say whether it fits "
+        "and name its conflicts and warnings. Recommend only connections that fit; if none fits, say "
+        "clearly that no connection fits and why. "
         "Never say anything about appointments of a day whose calendar you have not fetched. "
         "List appointments per day; say explicitly when a day has none. "
         "Write the whole answer in the language of the user's question: an English question gets an "
@@ -68,6 +73,13 @@ def unfetched_days(days: list[str]) -> str:
             f"{'this day' if len(days) == 1 else 'these days'}. Fetch what the question needs for "
             f"{'it' if len(days) == 1 else 'them'} with the matching tool now, then give the complete "
             "answer again, based only on fetched data.")
+
+
+def unreported_conflicts(conflicts: dict[str, str]) -> str:
+    listed = '; '.join(f"{train}: {reason}" for train, reason in sorted(conflicts.items()))
+    return ("According to the calendar check in the get_connections result, these connections do NOT fit: "
+            f"{listed}. Your answer mentions them without saying so. Give the complete answer again and "
+            "state the conflict for every connection that does not fit.")
 
 
 def unknown_trains(trains: list[str]) -> str:

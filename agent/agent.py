@@ -12,7 +12,7 @@ from datetime import date
 from . import prompts
 from .config import Config
 from .errors import EXIT_PARTIAL, ModelError, RateLimited, RunAborted
-from .guards import unfetched_days, unknown_trains, wrong_language
+from .guards import unfetched_days, unknown_trains, unreported_conflicts, wrong_language
 from .llm import Completion
 from .log import RunLog
 from .policies import PausePolicy, countdown, partial_report
@@ -126,6 +126,10 @@ class Agent:
                 self.log.note(f'answer names trains no tool returned {invented}, '
                               f'asked the model to correct it ({state.guard_rounds + 1})')
                 correction = prompts.unknown_trains(invented)
+            elif unreported := unreported_conflicts(content, state.results):
+                self.log.note(f'answer does not report calendar conflicts of {sorted(unreported)}, '
+                              f'asked the model to correct it ({state.guard_rounds + 1})')
+                correction = prompts.unreported_conflicts(unreported)
             if correction:
                 state.guard_rounds += 1
                 return self._correct(state, content, correction)
