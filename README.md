@@ -14,7 +14,13 @@ Days are `YYYY-MM-DD`, cities the slugs `ulm` and `muenchen` (the schema restric
 this city" result). HTTP 404 means
 *no data*: the tool returns an explicit "no data … do not guess" result instead of failing, so the
 agent says that there is no data rather than, e.g., reading a missing forecast as "no rain".
-See [TOOLS.md](TOOLS.md) for the fact sheet (effect and reversibility of every tool).
+
+Whether a train fits the user's day is computed in code, not by the model: `get_connections` checks
+every connection against the calendar of that day (`agent/tools/schedule.py`: overlaps, where the
+user is before departure, whether the next appointment can still be reached) and returns `fits`,
+`conflicts` and `warnings` per connection. The model only reports that result, and an answer that
+mentions a conflicting train without saying so is sent back (see below).
+See [TOOLS.md](TOOLS.md) for the fact sheet (effect and reversibility of every tool, check rules).
 
 ## Setup
 
@@ -59,7 +65,8 @@ agent/
     data.py       shared data access: fetch_json (404 -> None), iso_day, city_slug
     calendar.py   get_calendar_day
     weather.py    get_weather
-    transit.py    get_connections
+    transit.py    get_connections (with the calendar check of every connection)
+    schedule.py   check_connection(): does a connection fit the appointments of the day?
     __init__.py   build_registry(): the tools the agent gets (a new tool is added here)
   policies.py     what to do at the token limit: ask the user (AskUser) or wait (WaitAlone)
   guards.py       checks on an answer before it is accepted (no unfetched days, no unknown trains)
@@ -88,7 +95,8 @@ Errors in a single step do not abort the run:
   sent back once to be rewritten; the reminder sent with each request names the language explicitly;
 - an answer that talks about a day for which no tool fetched data (dates are recognised in German,
   English and ISO notation), or that names a train (e.g. `ICE 596`) that neither a tool result nor
-  the question contains, is not accepted either: the model is told to fetch the data / use only returned connections
+  the question contains, or that mentions a train the calendar check marked as not fitting without
+  saying so (negations like "doesn't conflict" do not count as saying so), is not accepted either: the model is told to fetch the data / use only returned connections
   (at most twice per run, so the run still ends). This is a safety net, not a proof: it only sees
   dates and train numbers the answer names explicitly, and does not check the answer against the
   question.
