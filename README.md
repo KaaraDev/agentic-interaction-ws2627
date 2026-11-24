@@ -10,7 +10,8 @@ the task needs, and then answers.
 | `get_connections` | `transit/{origin}/{destination}/{day}.json` | `origin`, `destination`, `day` |
 
 Days are `YYYY-MM-DD`, cities the slugs `ulm` and `muenchen` (the schema restricts them to these;
-`munich` / `München` are mapped to `muenchen`, any other city is an error result). HTTP 404 means
+`munich` / `München` are mapped to `muenchen`; any other city, e.g. Berlin, gets a "no data for
+this city" result). HTTP 404 means
 *no data*: the tool returns an explicit "no data … do not guess" result instead of failing, so the
 agent says that there is no data rather than, e.g., reading a missing forecast as "no rain".
 See [TOOLS.md](TOOLS.md) for the fact sheet (effect and reversibility of every tool).
@@ -83,9 +84,11 @@ Errors in a single step do not abort the run:
   again;
 - an empty or cut-off answer is not accepted as a result: the model is told which days it has
   fetched so far and continues (it is not pushed to answer, which would make it invent data);
+- an answer in the wrong language (English or German, recognised from common function words) is
+  sent back once to be rewritten; the reminder sent with each request names the language explicitly;
 - an answer that talks about a day for which no tool fetched data (dates are recognised in German,
-  English and ISO notation), or that names a train (e.g. `ICE 596`) that no tool result contains,
-  is not accepted either: the model is told to fetch the data / use only returned connections
+  English and ISO notation), or that names a train (e.g. `ICE 596`) that neither a tool result nor
+  the question contains, is not accepted either: the model is told to fetch the data / use only returned connections
   (at most twice per run, so the run still ends). This is a safety net, not a proof: it only sees
   dates and train numbers the answer names explicitly, and does not check the answer against the
   question.
