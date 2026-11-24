@@ -12,14 +12,15 @@ from datetime import date
 from . import prompts
 from .config import Config
 from .errors import EXIT_PARTIAL, ModelError, RateLimited, RunAborted
-from .guards import unfetched_days, unknown_trains
+from .guards import unfetched_days, unknown_trains, wrong_language
 from .llm import Completion
 from .log import RunLog
 from .policies import PausePolicy, countdown, partial_report
 from .tools import ToolRegistry, ToolResult
 
 MAX_NUDGES = 3        # corrections for garbled, empty or cut-off model output
-MAX_GUARD_ROUNDS = 2  # corrections for answers about days that were not fetched
+MAX_GUARD_ROUNDS = 2  # corrections for answers about days not fetched or trains not returned
+MAX_LANGUAGE_ROUNDS = 1  # corrections for an answer in the wrong language
 
 
 @dataclass
@@ -30,6 +31,7 @@ class RunState:
     steps: int = 0
     nudges: int = 0
     guard_rounds: int = 0
+    language_rounds: int = 0
     pauses: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
@@ -120,16 +122,27 @@ class Agent:
                 self.log.note(f'answer mentions unfetched days {missing}, '
                               f'asked the model to fetch them ({state.guard_rounds + 1})')
                 correction = prompts.unfetched_days(missing)
-            elif invented := unknown_trains(content, state.results):
+            elif invented := unknown_trains(content, state.results, state.task):
                 self.log.note(f'answer names trains no tool returned {invented}, '
                               f'asked the model to correct it ({state.guard_rounds + 1})')
                 correction = prompts.unknown_trains(invented)
             if correction:
                 state.guard_rounds += 1
-                state.messages.append({"role": "assistant", "content": content})
-                state.messages.append({"role": "user", "content": correction})
-                return None
+                return self._correct(state, content, correction)
+
+        # Checked last and only once: content first, then the language of the accepted content.
+        if state.language_rounds < MAX_LANGUAGE_ROUNDS and (language := wrong_language(content, state.task)):
+            state.language_rounds += 1
+            self.log.note(f'answer not in {language}, asked the model to rewrite it')
+            return self._correct(state, content, prompts.wrong_language(language))
         return content
+
+    @staticmethod
+    def _correct(state: RunState, answer: str, correction: str) -> None:
+        """Keep the rejected answer in the history and tell the model what to change."""
+        state.messages.append({"role": "assistant", "content": answer})
+        state.messages.append({"role": "user", "content": correction})
+        return None
 
     def _count_tokens(self, state: RunState, completion: Completion) -> None:
         """Keeps a running total for the run log, so the cost of a run is visible."""

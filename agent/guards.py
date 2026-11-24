@@ -1,11 +1,45 @@
-"""Checks on the model's answer before it is accepted. Both look for invented content.
+"""Checks on the model's answer before it is accepted.
 
 unfetched_days(): dates the answer talks about without any tool having fetched data for them.
                   Dates are recognised in ISO, German and English notation.
-unknown_trains(): train numbers (e.g. ICE 596) in the answer that no tool result contains.
+unknown_trains(): train numbers (e.g. ICE 596) in the answer that neither a tool result nor the
+                  question contains.
+language_of():    English or German, from common function words; used to name the answer language
+                  in the reminder and to reject an answer in the wrong language.
 """
 import re
 from datetime import date
+
+# Function words only: the German mock data (titles like "Rueckmeldung an Betreuerin", "Schauer")
+# contains hardly any of them, so an English answer quoting it still counts as English.
+# Words used in both languages (an, in, am, so, will, was/war in some forms) are left out.
+_GERMAN = frozenset('der die das den dem des und ist sind nicht mit für fuer auf ein eine einen einem '
+                    'keine kein ich du wir sie ihr ihre ihnen es gibt wird werden hat haben habe bei nach '
+                    'zum zur wie was wann wo welche welcher brauche muss kann heute morgen uhr oder aber '
+                    'auch noch nur sehr bitte um vom zu im steht stehen bin mein meine meinen meinem '
+                    'komme fahre gehe dort hier'.split())
+_ENGLISH = frozenset('the and is are not with for you your there will what which when where how do does '
+                     'need take have has at from of to this that it on no there a i my me can should '
+                     'any be get'.split())
+
+
+def language_of(text: str, min_hits: int = 2) -> str | None:
+    """'English' or 'German' if the function words clearly point to one of them, else None."""
+    words = re.findall(r"[a-zäöüß]+", text.lower())
+    german = sum(word in _GERMAN for word in words)
+    english = sum(word in _ENGLISH for word in words)
+    if german >= min_hits and german >= 2 * english:
+        return 'German'
+    if english >= min_hits and english >= 2 * german:
+        return 'English'
+    return None
+
+
+def wrong_language(answer: str, question: str) -> str | None:
+    """The question's language if the answer is clearly written in the other one, else None."""
+    wanted = language_of(question)
+    written = language_of(answer, min_hits=5)  # stricter: an answer quotes German data values
+    return wanted if wanted and written and written != wanted else None
 
 MONTHS = {
     'jan': 1, 'januar': 1, 'january': 1, 'feb': 2, 'februar': 2, 'february': 2,
@@ -98,8 +132,9 @@ def _trains(text: str) -> set[str]:
     return {f"{kind} {number}" for kind, number in _TRAIN.findall(text.translate(_NORMALISE))}
 
 
-def unknown_trains(answer: str, results) -> list[str]:
-    known = set()
+def unknown_trains(answer: str, results, question: str = '') -> list[str]:
+    # Trains the user named may appear in a correct answer ("ICE 999 does not run that day").
+    known = _trains(question)
     for result in results:
         if result.ok:
             known |= _trains(result.content)

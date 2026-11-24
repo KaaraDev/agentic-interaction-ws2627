@@ -1,7 +1,7 @@
 """Train connections tool: {DATA_BASE_URL}/transit/{from}/{to}/{YYYY-MM-DD}.json."""
 from ..errors import ToolError
 from .base import Tool
-from .data import CITIES, city_slug, fetch_json, iso_day, to_json
+from .data import CITIES, fetch_json, iso_day, known_city, to_json, unknown_city_result
 
 NAME = 'get_connections'
 
@@ -9,7 +9,11 @@ NAME = 'get_connections'
 def transit_tool(data_base_url: str) -> Tool:
     # 'origin' / 'destination' instead of 'from' / 'to': 'from' is a Python keyword.
     def get_connections(origin: str, destination: str, day: str) -> str:
-        origin, destination, day = city_slug(origin), city_slug(destination), iso_day(day)
+        day = iso_day(day)
+        for city in (origin, destination):
+            if known_city(city) is None:
+                return unknown_city_result(city, day)
+        origin, destination = known_city(origin), known_city(destination)
         if origin == destination:
             raise ToolError("origin and destination are the same city.")
         data = fetch_json(data_base_url, f"transit/{origin}/{destination}/{day}.json")

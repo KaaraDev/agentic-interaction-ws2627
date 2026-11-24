@@ -1,13 +1,16 @@
 """Weather tool: the forecast for one city and day from {DATA_BASE_URL}/weather/{city}/{YYYY-MM-DD}.json."""
 from .base import Tool
-from .data import CITIES, city_slug, fetch_json, iso_day, to_json
+from .data import CITIES, fetch_json, iso_day, known_city, to_json, unknown_city_result
 
 NAME = 'get_weather'
 
 
 def weather_tool(data_base_url: str) -> Tool:
     def get_weather(city: str, day: str) -> str:
-        city, day = city_slug(city), iso_day(day)
+        day = iso_day(day)
+        if (slug := known_city(city)) is None:
+            return unknown_city_result(city, day)
+        city = slug
         data = fetch_json(data_base_url, f"weather/{city}/{day}.json")
         if data is None:
             # Lecture 3: a 404 read as "no rain". Say plainly that there is no forecast at all.

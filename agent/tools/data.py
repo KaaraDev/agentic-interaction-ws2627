@@ -31,6 +31,21 @@ def city_slug(value) -> str:
     return slug
 
 
+def known_city(value) -> str | None:
+    """The slug, or None for a city the mock data has no data for (e.g. 'berlin')."""
+    try:
+        return city_slug(value)
+    except ToolError:
+        return None
+
+
+def unknown_city_result(city, day: str) -> str:
+    """A city without data is "no data for this place", like a 404: a valid result, so the run treats
+    the day as looked up and the model says there is no data instead of retrying or guessing."""
+    return to_json({"city": str(city), "date": day, "available": False,
+                    "note": f"No data for {city!r}: only {', '.join(CITIES)} are known. Do not guess."})
+
+
 def fetch_json(data_base_url: str, path: str):
     """The parsed JSON at {data_base_url}/{path}; None if the endpoint has no data (HTTP 404)."""
     url = f"{data_base_url}/{path}"

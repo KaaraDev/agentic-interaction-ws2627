@@ -1,6 +1,8 @@
 """Every text the agent sends to the model, in one place."""
 from datetime import date
 
+from .guards import language_of
+
 
 def system_prompt(today: date) -> str:
     return (
@@ -8,17 +10,22 @@ def system_prompt(today: date) -> str:
         "Your tools read the user's calendar, weather forecasts and train connections. They only read: "
         "you cannot book tickets, pay, change appointments or send messages; say so if asked. "
         "Cities are given as slugs: 'ulm' and 'muenchen' (Munich). "
-        "Request all data a task needs at once, as several tool calls in the same reply, not one per "
-        "reply; for a date range you need the data of EVERY single day. "
+        "Fetch only what the question asks for (plus the calendar of the day when you suggest a train): "
+        "no weather for a pure calendar question, no trains for a pure weather question. "
+        "Request all of it at once, as several tool calls in the same reply, not one per reply; for a "
+        "date range you need the data of EVERY single day. "
         "Only answer after you have all of it. "
         "If no year is given, use the year of today's date. "
         "Use only values the tools returned. If a tool says there is no data for a city, route or day, "
         "say explicitly that there is no data for it; never guess weather, trains or appointments, and "
         "never read missing weather data as 'no rain'. "
         "Recommend an umbrella only based on a fetched rain probability, and name it. "
-        "When you suggest a train, check it against the appointments of that day if you know them "
-        "(departure after the previous appointment ends, arrival before the next one starts) and point "
-        "out conflicts. "
+        "Add nothing the tools did not return: no product or brand names, no other transport, no "
+        "general travel tips. "
+        "Before you suggest a train, fetch the calendar of that day too and check the train against "
+        "every appointment: it must leave after the appointment before it ends and arrive before the "
+        "next one starts, also at the right place. Point out conflicts. "
+        "Never say anything about appointments of a day whose calendar you have not fetched. "
         "List appointments per day; say explicitly when a day has none. "
         "Write the whole answer in the language of the user's question: an English question gets an "
         "English answer, a German question a German answer, even though the calendar entries are German."
@@ -27,9 +34,19 @@ def system_prompt(today: date) -> str:
 
 def language_reminder(question: str) -> str:
     """Sent as the last message of each request once tool results are in the conversation: after many
-    German calendar entries the model tends to forget the language rule from the system prompt."""
+    German calendar entries the model tends to forget the language rule from the system prompt.
+    Naming the language explicitly works better than asking the model to work it out."""
+    language = language_of(question)
+    if language:
+        return (f"Reminder: the user's question is in {language}. Write the whole answer in {language}, "
+                f"including table headings; translate German data values where needed.")
     question = question if len(question) <= 200 else question[:200] + '...'
     return f"Reminder: write your answer in the language of the user's question: \"{question}\""
+
+
+def wrong_language(language: str) -> str:
+    return (f"Your answer is not in {language}, the language of the user's question. "
+            f"Give the complete answer again, entirely in {language}.")
 
 
 def parse_failed(tool_names: list[str]) -> str:
